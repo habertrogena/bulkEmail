@@ -32,6 +32,12 @@ RUN pnpm install --frozen-lockfile
 
 COPY apps/admin ./apps/admin
 
+# apps/admin/public is currently empty, and git doesn't track empty
+# directories — on a fresh CI checkout it won't exist at all, which would
+# fail the runtime stage's COPY below. mkdir -p makes this resilient whether
+# or not public/ has any tracked files, now or in the future.
+RUN mkdir -p apps/admin/public
+
 RUN pnpm --filter @apps/admin build
 
 # --- runtime ---
