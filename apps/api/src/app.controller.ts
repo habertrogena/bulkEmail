@@ -9,4 +9,10 @@ export class AppController {
   getHello(): string {
     return this.appService.getHello();
   }
+
+  /** Unauthenticated liveness check for the reverse proxy / deploy verification. */
+  @Get('health')
+  getHealth(): { status: 'ok' } {
+    return { status: 'ok' };
+  }
 }

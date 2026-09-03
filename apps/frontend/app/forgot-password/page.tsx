@@ -10,7 +10,7 @@ export default function ForgotPasswordPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!isAuthLoading && isAuthenticated) router.replace("/");
+    if (!isAuthLoading && isAuthenticated) router.replace("/dashboard");
   }, [isAuthLoading, isAuthenticated, router]);
 
   if (isAuthLoading || isAuthenticated) return null;

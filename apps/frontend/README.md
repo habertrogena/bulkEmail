@@ -1,36 +1,41 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Frontend — customer dashboard
 
-## Getting Started
+Customer-facing Next.js app for the email campaign platform: company registration/login, sending
+domain + sender setup, campaign composer, live send status, and suppression list. Talks to the
+NestJS API (`apps/api`) over REST with an httpOnly cookie for auth (no tokens in localStorage).
 
-First, run the development server:
+## Running locally
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+1. From the repo root, start the backend's local infra and API (see the root `README.md`):
+   ```bash
+   docker compose up -d        # Postgres + Redis
+   pnpm exec prisma migrate deploy
+   pnpm --filter @apps/api dev # http://localhost:4500
+   ```
+2. Copy `.env.example` to `.env.local` in this directory (or set `NEXT_PUBLIC_API_URL` another
+   way) — it defaults to `http://localhost:4500`, matching the API's default port.
+3. From the repo root:
+   ```bash
+   pnpm --filter @apps/frontend dev   # http://localhost:3200
+   ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## What works without real AWS credentials
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Registration, login, adding a sender on the platform's shared fallback domain, composing a
+campaign, uploading a CSV, and sending are all fully testable without SES access — sending will
+enqueue and each recipient will end up `failed` with the SES auth error surfaced in the recipient
+table (verified end-to-end against the backend). Actual domain verification and successful
+delivery require real AWS SES/SNS credentials on the backend.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Structure
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `app/(login|register|forgot-password|reset-password)` — public auth pages.
+- `app/dashboard` — campaigns list (home page after login).
+- `app/campaigns/new`, `app/campaigns/[id]` — composer and live status.
+- `app/settings/domain` — sending domain + approved senders.
+- `app/suppression` — read-only suppression list.
+- `proxy.ts` (Next 16's replacement for `middleware.ts`) — redirects to `/login` when the
+  `accessToken` cookie is absent (presence check
+  only; the JWT itself is verified server-side on every API call, same as before).
+- `hooks/` — one hand-rolled `useState` + `apiFetch` hook per backend resource, matching the
+  existing `useLogin`/`useRegister` pattern (no react-query/SWR in this project).

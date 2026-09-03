@@ -19,8 +19,6 @@ export function useRegister() {
       const { confirmPassword, ...apiPayload } = payload;
       void confirmPassword;
 
-      if (apiPayload.nationalID === "") delete apiPayload.nationalID;
-
       const result = await apiFetch<RegisterResponse>("/auth/register", {
         method: "POST",
         body: JSON.stringify(apiPayload),

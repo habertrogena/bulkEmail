@@ -1,5 +1,7 @@
 export type RegisterResponse = {
   id: string;
-  name: string;
   email: string;
+  companyId: string;
+  role: string;
+  createdAt: string;
 };

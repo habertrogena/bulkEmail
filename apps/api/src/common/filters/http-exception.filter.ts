@@ -11,7 +11,7 @@ import { PinoLogger } from 'nestjs-pino';
 const ALLOWED_ORIGINS =
   process.env.CORS_ORIGIN?.split(',').map((o) => o.trim()) ??
   (process.env.NODE_ENV !== 'production'
-    ? ['http://localhost:3000', 'http://127.0.0.1:3000']
+    ? ['http://localhost:3200', 'http://127.0.0.1:3200']
     : []);
 
 @Catch()

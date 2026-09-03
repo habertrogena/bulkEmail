@@ -30,12 +30,10 @@ export default function RegisterForm() {
   const form = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
-      name: "",
+      companyName: "",
       email: "",
       password: "",
       confirmPassword: "",
-      age: undefined,
-      nationalID: "",
     },
   });
 
@@ -66,18 +64,18 @@ export default function RegisterForm() {
           <p className="text-red-600 text-center font-medium">{serverError}</p>
         )}
 
-        {/* Name */}
+        {/* Company name */}
         <FormField
           control={form.control}
-          name="name"
+          name="companyName"
           render={({ field, fieldState }) => (
             <FormItem>
-              <FormLabel>Full Name</FormLabel>
+              <FormLabel>Company name</FormLabel>
               <FormControl>
                 <Input
                   {...field}
                   value={field.value ?? ""}
-                  placeholder="Your Name"
+                  placeholder="Acme Inc."
                 />
               </FormControl>
               <FormMessage>{fieldState.error?.message}</FormMessage>
@@ -97,52 +95,6 @@ export default function RegisterForm() {
                   {...field}
                   value={field.value ?? ""}
                   placeholder="you@example.com"
-                />
-              </FormControl>
-              <FormMessage>{fieldState.error?.message}</FormMessage>
-            </FormItem>
-          )}
-        />
-
-        {/* Age (optional) */}
-        <FormField
-          control={form.control}
-          name="age"
-          render={({ field, fieldState }) => (
-            <FormItem>
-              <FormLabel>Age (optional)</FormLabel>
-              <FormControl>
-                <Input
-                  type="number"
-                  min={1}
-                  max={150}
-                  placeholder="Your age"
-                  value={field.value === undefined || field.value === null ? "" : field.value}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    field.onChange(v === "" ? undefined : Number(v));
-                  }}
-                />
-              </FormControl>
-              <FormMessage>{fieldState.error?.message}</FormMessage>
-            </FormItem>
-          )}
-        />
-
-        {/* National ID (optional) */}
-        <FormField
-          control={form.control}
-          name="nationalID"
-          render={({ field, fieldState }) => (
-            <FormItem>
-              <FormLabel>National ID (optional)</FormLabel>
-              <FormControl>
-                <Input
-                  {...field}
-                  value={field.value ?? ""}
-                  placeholder="Digits only"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
                 />
               </FormControl>
               <FormMessage>{fieldState.error?.message}</FormMessage>

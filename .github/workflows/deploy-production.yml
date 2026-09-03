@@ -1,0 +1,146 @@
+# Production-only pipeline: push to `main` builds all three Docker images
+# (api, frontend, admin), pushes them to GHCR, then tells the VPS to pull
+# and restart. There is no staging/dev pipeline and no PR-triggered build
+# here (see pr-check.yml for that) — this workflow exists purely to ship
+# production, matching CrewOS's structural pattern on the same VPS but
+# without CrewOS's staging leg (this project is production-only by
+# deliberate decision, not a partial copy of that pattern).
+#
+# The VPS never builds anything itself. It only ever runs
+# `docker compose pull` + `docker compose up -d` against pre-built images —
+# see docker-compose.deploy.yml for why, and for the required VPS-side
+# `.env` (copy .env.production.example to /opt/bulk-email/production/.env
+# on the server and fill it in by hand).
+#
+# Database migrations run automatically (`prisma migrate deploy` is safe to
+# re-run — it's a no-op when there's nothing pending). `prisma db seed` does
+# NOT run here: this project has no seed script today (unlike CrewOS, which
+# seeds an admin credential on every deploy). See docs/DEPLOYMENT.md for the
+# open decision on whether to add one for platform-admin bootstrapping —
+# until that's decided, granting platform-admin access stays the existing
+# manual step: `pnpm --filter @apps/api admin:grant <email>` run by hand.
+#
+# This job targets the `production` GitHub Environment — that environment
+# must be created manually first (Settings → Environments → New environment
+# → "production", with required reviewers added) since that can't be done
+# from a workflow file. Combined with branch protection on `main` (require
+# PR review before merge — also a manual repo setting), this means
+# production can never be reached without both a reviewed merge AND an
+# explicit manual approval click in the Actions UI.
+#
+# Required GitHub Secrets (Settings → Secrets and variables → Actions →
+# Secrets), documented in README.md and docs/DEPLOYMENT.md:
+#   VPS_HOST     - the server's IP or hostname
+#   VPS_USER     - SSH user on the VPS (e.g. "sir")
+#   VPS_SSH_KEY  - private key for SSH auth; the matching public key must
+#                  already be in the VPS user's ~/.ssh/authorized_keys —
+#                  this workflow does not set that up
+#
+# Required GitHub Variables (Settings → Secrets and variables → Actions →
+# Variables) — not secret, just baked into the frontend/admin builds:
+#   PROD_API_URL - the API's real public URL, e.g. https://bulkmailapi.okwiyatech.co.ke
+#                  This app has NO global route prefix (checked
+#                  apps/api/src/main.ts — no `setGlobalPrefix` call), so this
+#                  URL must NOT have a trailing /api/v1 or similar. If a
+#                  prefix is ever added to the API, this variable must be
+#                  updated to include it or every frontend/admin request
+#                  will start 404ing after the next deploy.
+#
+# No AWS or database secrets belong here — those live only in the VPS's own
+# production .env, never touched by CI.
+
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  API_IMAGE: ghcr.io/habertrogena/bulk-email-api
+  FRONTEND_IMAGE: ghcr.io/habertrogena/bulk-email-frontend
+  ADMIN_IMAGE: ghcr.io/habertrogena/bulk-email-admin
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve short SHA
+        id: vars
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # One image serves both the API server and the BullMQ worker — the
+      # queue processor runs in-process inside the Nest app (see
+      # apps/api/Dockerfile), there is no separate worker entrypoint.
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.API_IMAGE }}:latest
+            ${{ env.API_IMAGE }}:${{ steps.vars.outputs.sha }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/frontend/Dockerfile
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.PROD_API_URL }}
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:latest
+            ${{ env.FRONTEND_IMAGE }}:${{ steps.vars.outputs.sha }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Build and push admin image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/admin/Dockerfile
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.PROD_API_URL }}
+          tags: |
+            ${{ env.ADMIN_IMAGE }}:latest
+            ${{ env.ADMIN_IMAGE }}:${{ steps.vars.outputs.sha }}
+          cache-from: type=gha,scope=admin
+          cache-to: type=gha,mode=max,scope=admin
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Pull, restart, and migrate on the VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd /opt/bulk-email/production
+            docker compose -f docker-compose.deploy.yml --env-file .env pull
+            docker compose -f docker-compose.deploy.yml --env-file .env up -d
+            docker compose -f docker-compose.deploy.yml --env-file .env exec -T api npx prisma migrate deploy
+            docker image prune -f

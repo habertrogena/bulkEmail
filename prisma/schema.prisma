@@ -6,19 +6,84 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
+model Company {
+  id                   String   @id @default(cuid())
+  name                 String
+  sendingDomain        String? // e.g. "abc.co.ke" — null until they add one
+  domainVerified       Boolean  @default(false)
+  dkimTokens           Json? // the 3 CNAME tokens SES returns
+  configurationSetName String? // per-company SES configuration set
+  approvedSenders      String[] // e.g. ["info@abc.co.ke", "sales@abc.co.ke"] — app-level allowlist, SES trusts the whole domain but we don't
+  planTier             String   @default("starter") // starter / pro / enterprise
+  monthlyEmailLimit    Int      @default(10000)
+  suspended            Boolean  @default(false)
+  createdAt            DateTime @default(now())
+
+  users             User[]
+  campaigns         Campaign[]
+  suppressionEntries SuppressionEntry[]
+}
 
 model User {
-  id                   String    @id @default(uuid())
+  id                   String    @id @default(cuid())
   email                String    @unique
-  name                 String
-  password             String
-  age                  Int?
-  nationalID           String?
+  passwordHash         String
+  companyId            String
+  company              Company   @relation(fields: [companyId], references: [id])
+  role                 String    @default("member") // owner / admin / member
+  isPlatformAdmin      Boolean   @default(false)
   passwordResetToken   String?
   passwordResetExpires DateTime?
   createdAt            DateTime  @default(now())
+}
+
+model Campaign {
+  id              String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id])
+  subject         String
+  bodyHtml        String
+  fromAddress     String // must be in company.approvedSenders
+  replyTo         String?
+  status          String    @default("draft") // draft / sending / completed / failed
+  totalCount      Int       @default(0)
+  sentCount       Int       @default(0)
+  deliveredCount  Int       @default(0)
+  bouncedCount    Int       @default(0)
+  complainedCount Int       @default(0)
+  createdAt       DateTime  @default(now())
+  sentAt          DateTime?
+
+  recipients Recipient[]
+}
+
+model Recipient {
+  id           String    @id @default(cuid())
+  campaignId   String
+  campaign     Campaign  @relation(fields: [campaignId], references: [id])
+  email        String
+  mergeData    Json? // { first_name: "...", ... } for template personalization
+  status       String    @default("pending") // pending / sent / delivered / bounced / complained / failed
+  sesMessageId String?
+  errorMessage String?
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+
+  @@index([campaignId, status])
+  @@index([sesMessageId])
+}
+
+model SuppressionEntry {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  email     String
+  reason    String // bounce / complaint / manual_unsubscribe
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, email])
 }

@@ -9,7 +9,7 @@ export default function DashboardNavbar() {
   return (
     <header className="w-full flex justify-between items-center bg-white p-4 shadow-md">
       <span className="font-medium text-slate-800">
-        Hello, {user?.name || user?.email}
+        Hello, {user?.email}
       </span>
       <Button variant="destructive" onClick={logout}>
         Logout

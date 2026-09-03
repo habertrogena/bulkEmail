@@ -62,7 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await loginApi({ email: data.email, password: data.password });
       const me = await getUser();
       setUser(me);
-      router.push("/");
+      router.push("/dashboard");
     } catch (err) {
       throw err;
     } finally {
@@ -76,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await loginApi(data);
       const me = await getUser();
       setUser(me);
-      router.push("/");
+      router.push("/dashboard");
     } catch (err) {
       throw err;
     } finally {

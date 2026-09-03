@@ -26,7 +26,7 @@ jobs:
       - name: Prisma generate
         run: pnpm exec prisma generate
         env:
-          DATABASE_URL: "mysql://placeholder:placeholder@localhost:3306/placeholder"
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
 
       - name: Lint
         run: pnpm -r lint

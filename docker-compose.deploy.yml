@@ -1,0 +1,121 @@
+# Deploy-time compose file for the VPS — structurally mirrors the CrewOS
+# project's docker-compose.deploy.yml pattern on the same server: everything
+# that could collide with another project (container names, the Docker
+# network, volume names, host ports) comes from `.env`, nothing is
+# hardcoded. This project is production-only (no staging), so there's a
+# single VPS directory using this file, not two — but the file itself stays
+# fully env-driven anyway, so adding a staging environment later would only
+# mean a second directory with its own `.env`, never a change to this file.
+#
+# This is PULL-ONLY: it never builds from source. `docker compose -f
+# docker-compose.deploy.yml --env-file .env up -d --build` is never run in
+# the deploy pipeline — only `pull` + `up -d`. The CI workflow
+# (.github/workflows/deploy-production.yml) builds and pushes the images;
+# this file only ever references pre-built ghcr.io tags.
+#
+# Reads its environment from a `.env` file that must already exist next to
+# this file on the VPS (NOT injected by CI, and NOT the same file as the
+# local-dev repo-root `.env` — see .env.production.example for the full
+# variable list and how each one differs from local dev). Copy
+# `.env.production.example` to `.env` on the VPS and fill in real values by
+# hand — never commit a filled-in env file.
+#
+# IMPORTANT: DATABASE_URL and REDIS_URL in this VPS `.env` must point at the
+# service names below (`postgres`, `redis`), not `localhost` — containers on
+# this compose network resolve each other by service name:
+#   DATABASE_URL="postgresql://campaigns:<POSTGRES_PASSWORD>@postgres:5432/campaigns"
+#   REDIS_URL="redis://redis:6379"
+#
+# Postgres and Redis are NOT exposed to the host here (no `ports:` on either
+# service) — only the api/frontend/admin ports that Nginx needs to reach are
+# published. This is a deliberate difference from CrewOS's documented setup
+# (which exposes its Postgres on host port 5434); nothing on this VPS needs
+# to reach this project's Postgres/Redis from outside Docker. Add a `ports:`
+# mapping here later if that ever changes.
+#
+# Database migrations are deliberately NOT run automatically by this file or
+# by CI — see the note in deploy-production.yml. Run them by hand after any
+# deploy that includes a schema change:
+#   docker compose -f docker-compose.deploy.yml --env-file .env exec -T api npx prisma migrate deploy
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: ${CONTAINER_PREFIX}-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-campaigns}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-campaigns}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - net
+
+  redis:
+    image: redis:7
+    container_name: ${CONTAINER_PREFIX}-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - net
+
+  api:
+    image: ghcr.io/${GHCR_OWNER}/bulk-email-api:latest
+    container_name: ${CONTAINER_PREFIX}-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: ${API_PORT}
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - '${API_PORT}:${API_PORT}'
+    networks:
+      - net
+
+  frontend:
+    image: ghcr.io/${GHCR_OWNER}/bulk-email-frontend:latest
+    container_name: ${CONTAINER_PREFIX}-frontend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: ${FRONTEND_PORT}
+      HOSTNAME: 0.0.0.0
+    depends_on:
+      - api
+    ports:
+      - '${FRONTEND_PORT}:${FRONTEND_PORT}'
+    networks:
+      - net
+
+  admin:
+    image: ghcr.io/${GHCR_OWNER}/bulk-email-admin:latest
+    container_name: ${CONTAINER_PREFIX}-admin
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: ${ADMIN_PORT}
+      HOSTNAME: 0.0.0.0
+    depends_on:
+      - api
+    ports:
+      - '${ADMIN_PORT}:${ADMIN_PORT}'
+    networks:
+      - net
+
+# Logical names on the left (net, postgres_data, redis_data) stay fixed —
+# they're only ever used inside this file. The actual Docker-visible name on
+# the right comes entirely from `.env`, which is what actually prevents any
+# collision with CrewOS's or Tafuta's networks/volumes on the same VPS.
+networks:
+  net:
+    name: ${NETWORK_NAME}
+
+volumes:
+  postgres_data:
+    name: ${CONTAINER_PREFIX}-postgres-data
+  redis_data:
+    name: ${CONTAINER_PREFIX}-redis-data

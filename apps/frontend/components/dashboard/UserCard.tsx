@@ -26,23 +26,13 @@ export default function UserCardModal({ user }: UserCardModalProps) {
         </DialogHeader>
         <div className="space-y-2 mt-2">
           <p>
-            <strong>Name:</strong> {user.name || "N/A"}
-          </p>
-          <p>
             <strong>Email:</strong> {user.email}
           </p>
-          {typeof user.age === "number" && (
-            <p>
-              <strong>Age:</strong> {user.age}
-            </p>
-          )}
-          {user.nationalID && (
-            <p>
-              <strong>ID:</strong> {user.nationalID}
-            </p>
-          )}
           <p>
-            <strong>User UUID:</strong> {user.id}
+            <strong>Role:</strong> {user.role}
+          </p>
+          <p>
+            <strong>User ID:</strong> {user.id}
           </p>
         </div>
       </DialogContent>

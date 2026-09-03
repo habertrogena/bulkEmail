@@ -4,9 +4,8 @@ import { RegisterFormValues } from "@/validation/register.schema";
 export type AuthUser = {
   id: string;
   email: string;
-  name?: string;
-  age?: number | null;
-  nationalID?: string | null;
+  companyId: string;
+  role: string;
 };
 
 export type AuthContextType = {

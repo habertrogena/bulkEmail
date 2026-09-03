@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
@@ -12,19 +13,22 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import * as bcrypt from 'bcrypt';
 import { LoginDto } from './dto/login.dto';
 import { MailService } from '../mail/mail.service';
+import { CompaniesService } from '../companies/companies.service';
 
 const RESET_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
     private mail: MailService,
+    private companies: CompaniesService,
   ) {}
 
   async register(dto: RegisterDto) {
-    //check if user exist
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -33,22 +37,39 @@ export class AuthService {
 
     const hashed = await bcrypt.hash(dto.password, 10);
 
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        name: dto.name,
-        password: hashed,
-        age: dto.age, // optional
-        nationalID: dto.nationalID, // optional
-      },
+    const { user, company } = await this.prisma.$transaction(async (tx) => {
+      const company = await tx.company.create({
+        data: { name: dto.companyName },
+      });
+
+      const user = await tx.user.create({
+        data: {
+          email: dto.email,
+          passwordHash: hashed,
+          companyId: company.id,
+          role: 'owner',
+        },
+      });
+
+      return { user, company };
     });
+
+    try {
+      await this.companies.provisionConfigurationSet(company.id);
+    } catch (error) {
+      // Don't fail registration over SES being unreachable/misconfigured —
+      // the company is usable without a configuration set, just without
+      // delivery/bounce/complaint tracking until it's provisioned.
+      this.logger.warn(
+        `Failed to provision SES configuration set for company ${company.id}: ${String(error)}`,
+      );
+    }
 
     return {
       id: user.id,
       email: user.email,
-      name: user.name,
-      age: user.age,
-      nationalID: user.nationalID,
+      companyId: user.companyId,
+      role: user.role,
       createdAt: user.createdAt,
     };
   }
@@ -60,10 +81,15 @@ export class AuthService {
 
     if (!user) throw new UnauthorizedException("User doesn't exist");
 
-    const passwordValid = await bcrypt.compare(dto.password, user.password);
+    const passwordValid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordValid) throw new UnauthorizedException('Wrong password');
 
-    const payload = { sub: user.id, email: user.email };
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      companyId: user.companyId,
+      role: user.role,
+    };
     const token = this.jwt.sign(payload);
 
     return {
@@ -71,9 +97,8 @@ export class AuthService {
       user: {
         id: user.id,
         email: user.email,
-        name: user.name,
-        nationalID: user.nationalID,
-        age: user.age,
+        companyId: user.companyId,
+        role: user.role,
       },
     };
   }
@@ -84,9 +109,9 @@ export class AuthService {
     return {
       id: user.id,
       email: user.email,
-      name: user.name,
-      age: user.age,
-      nationalID: user.nationalID,
+      companyId: user.companyId,
+      role: user.role,
+      isPlatformAdmin: user.isPlatformAdmin,
     };
   }
 
@@ -117,7 +142,7 @@ export class AuthService {
       },
     });
 
-    const resetLink = `${process.env.FRONTEND_URL ?? 'http://localhost:3000'}/reset-password?token=${token}`;
+    const resetLink = `${process.env.FRONTEND_URL ?? 'http://localhost:3200'}/reset-password?token=${token}`;
 
     if (this.mail.isConfigured()) {
       await this.mail.sendResetLink(user.email, resetLink);
@@ -151,7 +176,7 @@ export class AuthService {
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
-        password: hashed,
+        passwordHash: hashed,
         passwordResetToken: null,
         passwordResetExpires: null,
       },
