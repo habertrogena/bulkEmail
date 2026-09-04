@@ -12,6 +12,14 @@
 # `.env` (copy .env.production.example to /opt/bulk-email/production/.env
 # on the server and fill it in by hand).
 #
+# Every compose command below is pinned to an explicit project name
+# (`-p bulkmail-prod`). Without this, Compose derives the project name from
+# the current directory (`/opt/bulk-email/production` -> "production"),
+# which collided with CrewOS's own VPS directory
+# (/opt/crewos/production -> also "production") and caused this project's
+# first-ever deploy to recreate CrewOS's containers. Never remove `-p
+# bulkmail-prod` from any compose command here or on the VPS.
+#
 # Database migrations run automatically (`prisma migrate deploy` is safe to
 # re-run — it's a no-op when there's nothing pending). `prisma db seed` does
 # NOT run here: this project has no seed script today (unlike CrewOS, which
@@ -31,13 +39,16 @@
 # Required GitHub Secrets (Settings → Secrets and variables → Actions →
 # Secrets), documented in README.md and docs/DEPLOYMENT.md:
 #   VPS_HOST     - the server's IP or hostname
-#   VPS_USER     - SSH user on the VPS (e.g. "sir")
+#   VPS_USER     - SSH user on the VPS (e.g. "habert")
 #   VPS_SSH_KEY  - private key for SSH auth; the matching public key must
 #                  already be in the VPS user's ~/.ssh/authorized_keys —
 #                  this workflow does not set that up
 #
 # Required GitHub Variables (Settings → Secrets and variables → Actions →
-# Variables) — not secret, just baked into the frontend/admin builds:
+# Variables — the REPOSITORY-level list, not inside an Environment's own
+# variables; a job with no `environment:` set, like build-and-push below,
+# cannot see environment-scoped variables at all) — not secret, just baked
+# into the frontend/admin builds:
 #   PROD_API_URL - the API's real public URL, e.g. https://bulkmailapi.okwiyatech.co.ke
 #                  This app has NO global route prefix (checked
 #                  apps/api/src/main.ts — no `setGlobalPrefix` call), so this
@@ -99,6 +110,12 @@ jobs:
           cache-from: type=gha,scope=api
           cache-to: type=gha,mode=max,scope=api
 
+      # Cache scope bumped to "frontend-v2" to bust a stale cached layer
+      # from an earlier build that had baked in an old/blank
+      # NEXT_PUBLIC_API_URL (surfaced as "Server is unreachable" /
+      # ERR_CONNECTION_REFUSED to localhost:4500 in the deployed app). Do
+      # not revert this to "frontend" — only bump it again in the future if
+      # the same staleness symptom ever reappears.
       - name: Build and push frontend image
         uses: docker/build-push-action@v6
         with:
@@ -110,9 +127,10 @@ jobs:
           tags: |
             ${{ env.FRONTEND_IMAGE }}:latest
             ${{ env.FRONTEND_IMAGE }}:${{ steps.vars.outputs.sha }}
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
+          cache-from: type=gha,scope=frontend-v2
+          cache-to: type=gha,mode=max,scope=frontend-v2
 
+      # Same cache-bust as the frontend image, same reason.
       - name: Build and push admin image
         uses: docker/build-push-action@v6
         with:
@@ -124,8 +142,8 @@ jobs:
           tags: |
             ${{ env.ADMIN_IMAGE }}:latest
             ${{ env.ADMIN_IMAGE }}:${{ steps.vars.outputs.sha }}
-          cache-from: type=gha,scope=admin
-          cache-to: type=gha,mode=max,scope=admin
+          cache-from: type=gha,scope=admin-v2
+          cache-to: type=gha,mode=max,scope=admin-v2
 
   deploy:
     needs: build-and-push
@@ -140,7 +158,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             cd /opt/bulk-email/production
-            docker compose -f docker-compose.deploy.yml --env-file .env pull
-            docker compose -f docker-compose.deploy.yml --env-file .env up -d
-            docker compose -f docker-compose.deploy.yml --env-file .env exec -T api npx prisma migrate deploy
+            docker compose -f docker-compose.deploy.yml --env-file .env -p bulkmail-prod pull
+            docker compose -f docker-compose.deploy.yml --env-file .env -p bulkmail-prod up -d
+            docker compose -f docker-compose.deploy.yml --env-file .env -p bulkmail-prod exec -T api npx prisma migrate deploy
             docker image prune -f
