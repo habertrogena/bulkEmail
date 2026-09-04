@@ -231,6 +231,15 @@ fix ships.
       and admin origins, comma-separated), `FRONTEND_URL`, `API_URL`,
       `AWS_REGION`/`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`,
       `SES_SNS_TOPIC_ARN`, and `PLATFORM_SENDING_DOMAIN`.
+- [ ] VPS `.env` has `COOKIE_DOMAIN=.okwiyatech.co.ke` set. **This is easy to
+      miss and breaks login silently in a very specific way**: without it,
+      the login cookie is scoped only to the API's own subdomain, the
+      frontend's and admin app's middleware never see it, and every login
+      redirects straight back to `/login` even though the login call itself
+      succeeded and the cookie was set correctly (verified in production —
+      see the auth.controller.ts comment on `COOKIE_OPTIONS` for the full
+      writeup). Confirm this is set before assuming any other part of a
+      broken login is the cause.
 - [ ] `CONTAINER_PREFIX`, `NETWORK_NAME`, and `GHCR_OWNER` are set and don't
       collide with CrewOS's or Tafuta's values on this VPS.
 - [ ] `API_PORT`/`FRONTEND_PORT`/`ADMIN_PORT` (4500/3200/3001) don't collide

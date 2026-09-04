@@ -26,6 +26,19 @@ const COOKIE_OPTIONS = {
       : ('strict' as const),
   path: '/',
   maxAge: 1000 * 60 * 60, // 1 hour
+  // Without this, the cookie defaults to being scoped to the exact host that
+  // set it — the API's own subdomain (e.g. bulkmailapi.okwiyatech.co.ke) —
+  // and is never sent on requests to the frontend's or admin app's own
+  // Next.js servers on their different subdomains. Their middleware
+  // (proxy.ts) checks for this cookie to decide whether to redirect to
+  // /login, so without a shared Domain it never sees a logged-in user and
+  // redirects every protected route back to /login in a loop, even though
+  // login itself succeeded and the cookie is correctly set on the API's own
+  // domain. Set COOKIE_DOMAIN to the shared parent domain (e.g.
+  // ".okwiyatech.co.ke") in production so all *.okwiyatech.co.ke subdomains
+  // can read it. Left unset in local dev, where everything is on localhost
+  // and no Domain attribute is needed.
+  domain: process.env.COOKIE_DOMAIN || undefined,
 };
 
 @Controller('auth')
@@ -61,6 +74,7 @@ export class AuthController {
       httpOnly: COOKIE_OPTIONS.httpOnly,
       secure: COOKIE_OPTIONS.secure,
       sameSite: COOKIE_OPTIONS.sameSite,
+      domain: COOKIE_OPTIONS.domain,
     });
     return { message: 'Logged out successfully' };
   }
