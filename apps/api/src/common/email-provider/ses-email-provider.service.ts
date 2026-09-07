@@ -60,6 +60,7 @@ export class SesEmailProviderService implements EmailProviderService {
         configurationSetName: params.configurationOrTagId,
         subject: params.subject,
         htmlBody: params.html,
+        unsubscribeUrl: params.unsubscribeUrl,
       });
       return { providerMessageId: result.MessageId ?? '' };
     } catch (error) {

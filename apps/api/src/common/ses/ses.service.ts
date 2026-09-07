@@ -91,6 +91,7 @@ export class SesService {
     configurationSetName?: string;
     subject: string;
     htmlBody: string;
+    unsubscribeUrl: string;
   }) {
     const command = new SendEmailCommand({
       FromEmailAddress: params.fromAddress,
@@ -101,6 +102,10 @@ export class SesService {
         Simple: {
           Subject: { Data: params.subject, Charset: 'UTF-8' },
           Body: { Html: { Data: params.htmlBody, Charset: 'UTF-8' } },
+          Headers: [
+            { Name: 'List-Unsubscribe', Value: `<${params.unsubscribeUrl}>` },
+            { Name: 'List-Unsubscribe-Post', Value: 'List-Unsubscribe=One-Click' },
+          ],
         },
       },
     });

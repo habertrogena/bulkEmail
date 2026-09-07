@@ -80,6 +80,10 @@ export class ResendEmailProviderService implements EmailProviderService {
       subject: params.subject,
       html: params.html,
       replyTo: params.replyTo,
+      headers: {
+        'List-Unsubscribe': `<${params.unsubscribeUrl}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
     });
 
     if (error || !data) {

@@ -62,6 +62,7 @@ export class EmailSendingProcessor extends WorkerHost {
         configurationOrTagId: company.configurationSetName ?? undefined,
         subject: campaign.subject,
         html: rendered,
+        unsubscribeUrl,
       });
 
       await this.prisma.$transaction([
