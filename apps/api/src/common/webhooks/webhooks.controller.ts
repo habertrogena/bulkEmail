@@ -61,9 +61,13 @@ export class WebhooksController {
   @Post('resend')
   async handleResend(
     @Body() rawBody: string,
-    @Headers('webhook-id') webhookId: string,
-    @Headers('webhook-timestamp') webhookTimestamp: string,
-    @Headers('webhook-signature') webhookSignature: string,
+    // Resend delivers webhooks via Svix, so the real wire headers are
+    // svix-id/svix-timestamp/svix-signature — "webhook-*" is only the
+    // resend SDK's internal parameter naming for verifyWebhookEvent below,
+    // not an actual HTTP header Resend sends.
+    @Headers('svix-id') webhookId: string,
+    @Headers('svix-timestamp') webhookTimestamp: string,
+    @Headers('svix-signature') webhookSignature: string,
   ): Promise<{ ok: boolean }> {
     const secret = process.env.RESEND_WEBHOOK_SECRET;
     if (!secret) {
