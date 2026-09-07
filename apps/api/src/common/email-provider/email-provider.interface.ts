@@ -32,6 +32,12 @@ export interface SendEmailParams {
   replyTo?: string;
   /** SES: configuration set name to route delivery events. Resend ignores this — event routing there is by email id, not a per-company set. */
   configurationOrTagId?: string;
+  /**
+   * Set on every send as List-Unsubscribe / List-Unsubscribe-Post headers
+   * (RFC 8058), not just linked in the body — required for Gmail/Yahoo's
+   * bulk-sender rules and a major factor in inbox-vs-spam placement.
+   */
+  unsubscribeUrl: string;
 }
 
 export interface SendEmailResult {
