@@ -15,8 +15,10 @@ model Company {
   name                 String
   sendingDomain        String? // e.g. "abc.co.ke" — null until they add one
   domainVerified       Boolean  @default(false)
-  dkimTokens           Json? // the 3 CNAME tokens SES returns
-  configurationSetName String? // per-company SES configuration set
+  dnsRecords           Json? // DNS records the active provider needs verified (DKIM/SPF/MX/etc — shape: DnsRecord[] from EmailProviderService)
+  providerDomainId     String? // opaque per-provider domain id needed to re-check status later (e.g. Resend); unused by SES, which keys off the domain name itself
+  configurationSetName String? // per-company SES configuration set; unused when emailProvider is "resend"
+  emailProvider        String   @default("ses") // "ses" | "resend" — which EmailProviderService this company sends through, see common/email-provider
   approvedSenders      String[] // e.g. ["info@abc.co.ke", "sales@abc.co.ke"] — app-level allowlist, SES trusts the whole domain but we don't
   planTier             String   @default("starter") // starter / pro / enterprise
   monthlyEmailLimit    Int      @default(10000)
@@ -68,13 +70,13 @@ model Recipient {
   email        String
   mergeData    Json? // { first_name: "...", ... } for template personalization
   status       String    @default("pending") // pending / sent / delivered / bounced / complained / failed
-  sesMessageId String?
+  providerMessageId String? // id issued by whichever EmailProviderService sent this (SES message id or Resend email id) — webhooks correlate back to this recipient by matching on it
   errorMessage String?
   sentAt       DateTime?
   deliveredAt  DateTime?
 
   @@index([campaignId, status])
-  @@index([sesMessageId])
+  @@index([providerMessageId])
 }
 
 model SuppressionEntry {

@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
   { href: "/dashboard", label: "Campaigns" },
+  { href: "/resend", label: "Resend" },
   { href: "/settings/domain", label: "Sending domain" },
   { href: "/suppression", label: "Suppression list" },
 ];

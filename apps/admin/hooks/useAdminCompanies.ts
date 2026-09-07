@@ -1,7 +1,13 @@
 "use client";
 
 import { apiFetch } from "@/lib/api";
-import type { AdminCompanyDetail, AdminCompanyListItem, UpdateLimitInput } from "@/interface/company";
+import type {
+  AdminCompanyDetail,
+  AdminCompanyListItem,
+  UpdateDomainInput,
+  UpdateLimitInput,
+  UpdateProviderInput,
+} from "@/interface/company";
 
 export function useAdminCompanies() {
   async function listCompanies(): Promise<AdminCompanyListItem[]> {
@@ -27,5 +33,27 @@ export function useAdminCompanies() {
     });
   }
 
-  return { listCompanies, getCompanyDetail, suspendCompany, unsuspendCompany, updateLimit };
+  async function updateProvider(id: string, input: UpdateProviderInput) {
+    return apiFetch(`/admin/companies/${id}/provider`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async function updateDomain(id: string, input: UpdateDomainInput) {
+    return apiFetch(`/admin/companies/${id}/domain`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    });
+  }
+
+  return {
+    listCompanies,
+    getCompanyDetail,
+    suspendCompany,
+    unsuspendCompany,
+    updateLimit,
+    updateProvider,
+    updateDomain,
+  };
 }

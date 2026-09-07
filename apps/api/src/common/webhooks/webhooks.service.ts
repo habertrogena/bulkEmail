@@ -14,39 +14,23 @@ export class WebhooksService {
   constructor(private readonly prisma: PrismaService) {}
 
   async handleSesNotification(notification: SesNotification): Promise<void> {
-    const configurationSetName =
-      notification.mail.tags?.['ses:configuration-set']?.[0];
-    if (!configurationSetName) {
-      this.logger.warn(
-        `SES notification missing configuration-set tag, messageId=${notification.mail.messageId}`,
-      );
-      return;
-    }
-
-    const company = await this.prisma.company.findFirst({
-      where: { configurationSetName },
-    });
-    if (!company) {
-      this.logger.warn(
-        `No company found for configuration set ${configurationSetName}`,
-      );
-      return;
-    }
-
     switch (notification.eventType) {
       case 'Delivery':
-        await this.handleDelivery(notification as SesDeliveryNotification);
-        break;
-      case 'Bounce':
-        await this.handleBounce(
-          company.id,
-          notification as SesBounceNotification,
+        await this.recordDelivered(
+          (notification as SesDeliveryNotification).mail.messageId,
         );
         break;
+      case 'Bounce': {
+        const bounce = notification as SesBounceNotification;
+        await this.recordBounced(
+          bounce.mail.messageId,
+          bounce.bounce.bounceType === 'Permanent',
+        );
+        break;
+      }
       case 'Complaint':
-        await this.handleComplaint(
-          company.id,
-          notification as SesComplaintNotification,
+        await this.recordComplained(
+          (notification as SesComplaintNotification).mail.messageId,
         );
         break;
       default:
@@ -54,15 +38,20 @@ export class WebhooksService {
     }
   }
 
-  private async handleDelivery(
-    notification: SesDeliveryNotification,
-  ): Promise<void> {
+  /**
+   * Shared by every provider's webhook handler: find the recipient this
+   * provider-issued message id belongs to and progress its status. Keeping
+   * this here (rather than inline per-provider) is what lets the SES and
+   * Resend webhook handlers apply identical suppression/status-update rules
+   * without duplicating them.
+   */
+  async recordDelivered(providerMessageId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const recipient = await tx.recipient.findFirst({
-        where: { sesMessageId: notification.mail.messageId },
+        where: { providerMessageId },
       });
       // Idempotent: only progress recipients that haven't already reached a
-      // terminal or later state — a duplicate SNS delivery must not double-count.
+      // terminal or later state — a duplicate delivery event must not double-count.
       if (!recipient || recipient.status !== 'sent') return;
 
       await tx.recipient.update({
@@ -76,13 +65,14 @@ export class WebhooksService {
     });
   }
 
-  private async handleBounce(
-    companyId: string,
-    notification: SesBounceNotification,
+  async recordBounced(
+    providerMessageId: string,
+    permanent: boolean,
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const recipient = await tx.recipient.findFirst({
-        where: { sesMessageId: notification.mail.messageId },
+        where: { providerMessageId },
+        include: { campaign: true },
       });
       if (!recipient || recipient.status === 'bounced') return;
 
@@ -95,25 +85,30 @@ export class WebhooksService {
         data: { bouncedCount: { increment: 1 } },
       });
 
-      if (notification.bounce.bounceType === 'Permanent') {
+      if (permanent) {
         await tx.suppressionEntry.upsert({
           where: {
-            companyId_email: { companyId, email: recipient.email },
+            companyId_email: {
+              companyId: recipient.campaign.companyId,
+              email: recipient.email,
+            },
           },
           update: {},
-          create: { companyId, email: recipient.email, reason: 'bounce' },
+          create: {
+            companyId: recipient.campaign.companyId,
+            email: recipient.email,
+            reason: 'bounce',
+          },
         });
       }
     });
   }
 
-  private async handleComplaint(
-    companyId: string,
-    notification: SesComplaintNotification,
-  ): Promise<void> {
+  async recordComplained(providerMessageId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const recipient = await tx.recipient.findFirst({
-        where: { sesMessageId: notification.mail.messageId },
+        where: { providerMessageId },
+        include: { campaign: true },
       });
       if (!recipient || recipient.status === 'complained') return;
 
@@ -126,9 +121,18 @@ export class WebhooksService {
         data: { complainedCount: { increment: 1 } },
       });
       await tx.suppressionEntry.upsert({
-        where: { companyId_email: { companyId, email: recipient.email } },
+        where: {
+          companyId_email: {
+            companyId: recipient.campaign.companyId,
+            email: recipient.email,
+          },
+        },
         update: {},
-        create: { companyId, email: recipient.email, reason: 'complaint' },
+        create: {
+          companyId: recipient.campaign.companyId,
+          email: recipient.email,
+          reason: 'complaint',
+        },
       });
     });
   }

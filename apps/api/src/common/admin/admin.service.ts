@@ -4,6 +4,8 @@ import { CompaniesService } from '../companies/companies.service';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { SesService } from '../ses/ses.service';
 import { UpdateLimitDto } from './dto/update-limit.dto';
+import { UpdateProviderDto } from './dto/update-provider.dto';
+import { UpdateDomainDto } from './dto/update-domain.dto';
 
 const REPUTATION_WINDOW_DAYS = 30;
 const BOUNCE_RATE_THRESHOLD = 0.05;
@@ -112,6 +114,24 @@ export class AdminService {
           monthlyEmailLimit: dto.monthlyEmailLimit,
         }),
         ...(dto.planTier !== undefined && { planTier: dto.planTier }),
+      },
+    });
+  }
+
+  async updateProvider(companyId: string, dto: UpdateProviderDto) {
+    return this.prisma.company.update({
+      where: { id: companyId },
+      data: { emailProvider: dto.emailProvider },
+    });
+  }
+
+  async updateDomain(companyId: string, dto: UpdateDomainDto) {
+    return this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        sendingDomain: dto.sendingDomain,
+        domainVerified: dto.domainVerified ?? true,
+        providerDomainId: dto.providerDomainId ?? null,
       },
     });
   }

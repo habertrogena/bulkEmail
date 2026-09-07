@@ -2,9 +2,10 @@ import { Module } from '@nestjs/common';
 import { CompaniesService } from './companies.service';
 import { CompaniesController } from './companies.controller';
 import { SesModule } from '../ses/ses.module';
+import { EmailProviderModule } from '../email-provider/email-provider.module';
 
 @Module({
-  imports: [SesModule],
+  imports: [SesModule, EmailProviderModule],
   controllers: [CompaniesController],
   providers: [CompaniesService],
   exports: [CompaniesService],

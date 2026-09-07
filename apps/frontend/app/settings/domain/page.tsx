@@ -56,7 +56,6 @@ export default function DomainSettingsPage() {
               ...prev,
               sendingDomain: result.domain,
               domainVerified: false,
-              dkimTokens: result.dkimTokens,
               instructions: result.instructions,
             }
           : prev,

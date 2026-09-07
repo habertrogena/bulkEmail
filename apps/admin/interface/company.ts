@@ -33,13 +33,24 @@ export interface FullCompany {
   name: string;
   sendingDomain: string | null;
   domainVerified: boolean;
-  dkimTokens: unknown;
+  dnsRecords: unknown;
   configurationSetName: string | null;
+  emailProvider: string;
   approvedSenders: string[];
   planTier: string;
   monthlyEmailLimit: number;
   suspended: boolean;
   createdAt: string;
+}
+
+export interface UpdateProviderInput {
+  emailProvider: string;
+}
+
+export interface UpdateDomainInput {
+  sendingDomain: string;
+  domainVerified?: boolean;
+  providerDomainId?: string;
 }
 
 export interface AdminCompanyDetail {

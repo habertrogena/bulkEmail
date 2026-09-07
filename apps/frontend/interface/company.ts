@@ -1,7 +1,9 @@
 export interface DkimInstruction {
-  type: "CNAME";
+  label: string; // e.g. "DKIM", "SPF", "Receiving" — which record this is
+  type: "CNAME" | "TXT" | "MX" | "CAA";
   name: string;
   value: string;
+  priority?: number; // only present for MX records
 }
 
 export interface CompanyProfile {
@@ -10,13 +12,11 @@ export interface CompanyProfile {
   approvedSenders: string[];
   planTier: string;
   monthlyEmailLimit: number;
-  dkimTokens: string[];
   instructions: DkimInstruction[];
 }
 
 export interface AddDomainResponse {
   domain: string;
-  dkimTokens: string[];
   instructions: DkimInstruction[];
 }
 
