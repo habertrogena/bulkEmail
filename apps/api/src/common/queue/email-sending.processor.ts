@@ -2,11 +2,11 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { SesService } from '../ses/ses.service';
+import { EmailProviderFactory } from '../email-provider/email-provider.factory';
+import { ProviderSendError } from '../email-provider/email-provider.interface';
 import { EMAIL_SENDING_QUEUE } from './queue.constants';
 import { injectUnsubscribeLink, renderTemplate } from './render-template';
 import { createUnsubscribeToken } from '../suppression/unsubscribe-token';
-import { isRetryableSesError, sesErrorMessage } from './ses-error';
 
 interface EmailSendingJobData {
   recipientId: string;
@@ -18,7 +18,7 @@ export class EmailSendingProcessor extends WorkerHost {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly ses: SesService,
+    private readonly providerFactory: EmailProviderFactory,
   ) {
     super();
   }
@@ -54,13 +54,14 @@ export class EmailSendingProcessor extends WorkerHost {
     );
 
     try {
-      const result = await this.ses.sendEmail({
-        fromAddress: campaign.fromAddress,
-        toAddress: recipient.email,
+      const provider = this.providerFactory.forCompany(company);
+      const result = await provider.sendEmail({
+        from: campaign.fromAddress,
+        to: recipient.email,
         replyTo: campaign.replyTo ?? undefined,
-        configurationSetName: company.configurationSetName ?? undefined,
+        configurationOrTagId: company.configurationSetName ?? undefined,
         subject: campaign.subject,
-        htmlBody: rendered,
+        html: rendered,
       });
 
       await this.prisma.$transaction([
@@ -68,7 +69,7 @@ export class EmailSendingProcessor extends WorkerHost {
           where: { id: recipient.id },
           data: {
             status: 'sent',
-            sesMessageId: result.MessageId,
+            providerMessageId: result.providerMessageId,
             sentAt: new Date(),
           },
         }),
@@ -78,13 +79,15 @@ export class EmailSendingProcessor extends WorkerHost {
         }),
       ]);
     } catch (error) {
-      if (isRetryableSesError(error)) {
+      if (error instanceof ProviderSendError && error.retryable) {
         this.logger.warn(
-          `Retryable SES error for recipient ${recipient.id}: ${sesErrorMessage(error)}`,
+          `Retryable provider error for recipient ${recipient.id}: ${error.message}`,
         );
         throw error;
       }
-      await this.markFailed(recipient.id, sesErrorMessage(error));
+      const message =
+        error instanceof Error ? error.message : 'Unknown send error';
+      await this.markFailed(recipient.id, message);
     }
 
     await this.completeCampaignIfDone(campaign.id);

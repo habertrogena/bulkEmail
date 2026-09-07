@@ -1,12 +1,15 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SesService } from '../ses/ses.service';
+import { EmailProviderFactory } from '../email-provider/email-provider.factory';
+import type { DnsRecord } from '../email-provider/email-provider.interface';
 
 @Injectable()
 export class CompaniesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ses: SesService,
+    private readonly providerFactory: EmailProviderFactory,
   ) {}
 
   /** Called once right after a Company is created. */
@@ -19,32 +22,25 @@ export class CompaniesService {
     });
   }
 
-  private buildDkimInstructions(domain: string, dkimTokens: string[]) {
-    return dkimTokens.map((token) => ({
-      type: 'CNAME',
-      name: `${token}._domainkey.${domain}`,
-      value: `${token}.dkim.amazonses.com`,
-    }));
-  }
-
   async addDomain(companyId: string, domain: string) {
-    const result = await this.ses.createEmailIdentity(domain);
-    const dkimTokens = result.DkimAttributes?.Tokens ?? [];
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: companyId },
+    });
+    const provider = this.providerFactory.forCompany(company);
+    const { dnsRecords, providerDomainId } =
+      await provider.createDomainIdentity(domain);
 
     await this.prisma.company.update({
       where: { id: companyId },
       data: {
         sendingDomain: domain,
         domainVerified: false,
-        dkimTokens,
+        dnsRecords: dnsRecords as unknown as object,
+        providerDomainId: providerDomainId ?? null,
       },
     });
 
-    return {
-      domain,
-      dkimTokens,
-      instructions: this.buildDkimInstructions(domain, dkimTokens),
-    };
+    return { domain, instructions: dnsRecords };
   }
 
   async getProfile(companyId: string) {
@@ -52,7 +48,7 @@ export class CompaniesService {
       where: { id: companyId },
     });
 
-    const dkimTokens = (company.dkimTokens as string[] | null) ?? [];
+    const dnsRecords = (company.dnsRecords as DnsRecord[] | null) ?? [];
 
     return {
       sendingDomain: company.sendingDomain,
@@ -60,10 +56,7 @@ export class CompaniesService {
       approvedSenders: company.approvedSenders,
       planTier: company.planTier,
       monthlyEmailLimit: company.monthlyEmailLimit,
-      dkimTokens,
-      instructions: company.sendingDomain
-        ? this.buildDkimInstructions(company.sendingDomain, dkimTokens)
-        : [],
+      instructions: dnsRecords,
     };
   }
 
@@ -76,10 +69,12 @@ export class CompaniesService {
       return { sendingDomain: null, domainVerified: false };
     }
 
-    const result = await this.ses.getEmailIdentity(company.sendingDomain);
-    const verified =
-      result.VerifiedForSendingStatus === true ||
-      result.DkimAttributes?.Status === 'SUCCESS';
+    const provider = this.providerFactory.forCompany(company);
+    const status = await provider.getDomainVerificationStatus(
+      company.sendingDomain,
+      company.providerDomainId,
+    );
+    const verified = status === 'verified';
 
     if (verified !== company.domainVerified) {
       await this.prisma.company.update({
@@ -105,8 +100,13 @@ export class CompaniesService {
       addressDomain === company.sendingDomain.toLowerCase();
     const onPlatformDomain =
       !!platformDomain && addressDomain === platformDomain.toLowerCase();
+    // Resend companies verify their sending domain directly in Resend's own
+    // dashboard, not through our /companies/domain flow — Resend's send API
+    // is the real enforcement (it rejects sends from a domain it hasn't
+    // verified), so we don't duplicate that gate here for them.
+    const providerHandlesVerification = company.emailProvider === 'resend';
 
-    if (!onVerifiedCompanyDomain && !onPlatformDomain) {
+    if (!onVerifiedCompanyDomain && !onPlatformDomain && !providerHandlesVerification) {
       throw new BadRequestException(
         'Sender address must be on your verified sending domain, or the shared platform domain until your domain is verified.',
       );

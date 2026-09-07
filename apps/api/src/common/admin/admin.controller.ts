@@ -11,6 +11,8 @@ import { JwtAuthGuard } from '../guards/jwt.guard';
 import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 import { AdminService } from './admin.service';
 import { UpdateLimitDto } from './dto/update-limit.dto';
+import { UpdateProviderDto } from './dto/update-provider.dto';
+import { UpdateDomainDto } from './dto/update-domain.dto';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, PlatformAdminGuard)
@@ -40,6 +42,16 @@ export class AdminController {
   @Patch('companies/:id/limit')
   updateLimit(@Param('id') id: string, @Body() dto: UpdateLimitDto) {
     return this.adminService.updateLimit(id, dto);
+  }
+
+  @Patch('companies/:id/provider')
+  updateProvider(@Param('id') id: string, @Body() dto: UpdateProviderDto) {
+    return this.adminService.updateProvider(id, dto);
+  }
+
+  @Patch('companies/:id/domain')
+  updateDomain(@Param('id') id: string, @Body() dto: UpdateDomainDto) {
+    return this.adminService.updateDomain(id, dto);
   }
 
   @Get('reputation')

@@ -36,13 +36,22 @@ export default function CompanyDetailPage({
 }) {
   const { id } = use(params);
   const { isAuthLoading } = useAdminAuth();
-  const { getCompanyDetail, suspendCompany, unsuspendCompany, updateLimit } =
-    useAdminCompanies();
+  const {
+    getCompanyDetail,
+    suspendCompany,
+    unsuspendCompany,
+    updateLimit,
+    updateProvider,
+    updateDomain,
+  } = useAdminCompanies();
 
   const [detail, setDetail] = useState<AdminCompanyDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [limitInput, setLimitInput] = useState("");
   const [planInput, setPlanInput] = useState("starter");
+  const [providerInput, setProviderInput] = useState("ses");
+  const [domainInput, setDomainInput] = useState("");
+  const [domainError, setDomainError] = useState<string | null>(null);
 
   function load() {
     getCompanyDetail(id)
@@ -50,6 +59,8 @@ export default function CompanyDetailPage({
         setDetail(data);
         setLimitInput(String(data.company.monthlyEmailLimit));
         setPlanInput(data.company.planTier);
+        setProviderInput(data.company.emailProvider);
+        setDomainInput(data.company.sendingDomain ?? "");
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load"));
   }
@@ -82,6 +93,9 @@ export default function CompanyDetailPage({
           <p className="text-sm text-slate-600">{company.sendingDomain ?? "No domain yet"}</p>
         </div>
         <div className="flex items-center gap-3">
+          <Badge variant="secondary">
+            {company.emailProvider === "resend" ? "Resend" : "Amazon SES"}
+          </Badge>
           {company.suspended ? (
             <Badge variant="destructive">Suspended</Badge>
           ) : (
@@ -178,6 +192,80 @@ export default function CompanyDetailPage({
             />
           </div>
         </div>
+      </div>
+
+      <div className="mb-6 rounded-xl bg-white p-6 shadow">
+        <h2 className="mb-3 text-lg font-semibold">Sending provider</h2>
+        <p className="mb-3 text-sm text-slate-600">
+          Internal-only: which email provider this company sends through. Switching a
+          company mid-flight does not migrate its existing domain verification or
+          campaign history — they&apos;ll need to re-add and re-verify their domain
+          under the new provider.
+        </p>
+        <div className="flex items-end gap-3">
+          <div className="flex-1">
+            <Label className="mb-1 block">Provider</Label>
+            <Select value={providerInput} onValueChange={setProviderInput}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ses">Amazon SES</SelectItem>
+                <SelectItem value="resend">Resend</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <ConfirmActionDialog
+            trigger={<Button>Save provider</Button>}
+            title="Change sending provider?"
+            description={`${company.name} will send its next campaigns through ${providerInput === "resend" ? "Resend" : "Amazon SES"}. This affects a real customer account.`}
+            confirmLabel="Save"
+            onConfirm={async () => {
+              await updateProvider(company.id, { emailProvider: providerInput });
+              load();
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="mb-6 rounded-xl bg-white p-6 shadow">
+        <h2 className="mb-3 text-lg font-semibold">Sending domain (manual)</h2>
+        <p className="mb-3 text-sm text-slate-600">
+          Use this when the domain was set up and verified directly in the provider&apos;s own
+          dashboard (e.g. Resend) rather than through this company&apos;s own{" "}
+          <span className="font-mono">/settings/domain</span> page. Setting it here marks the
+          domain verified immediately — the company can then add an approved sender and send,
+          with no further steps on their side.
+        </p>
+        <div className="flex items-end gap-3">
+          <div className="flex-1">
+            <Label className="mb-1 block">Sending domain</Label>
+            <Input
+              value={domainInput}
+              onChange={(e) => setDomainInput(e.target.value)}
+              placeholder="mail.clientdomain.com"
+            />
+          </div>
+          <ConfirmActionDialog
+            trigger={<Button disabled={!domainInput.trim()}>Mark verified</Button>}
+            title="Mark this domain verified?"
+            description={`${company.name} will be able to add approved senders on ${domainInput} and send immediately. Only confirm this once you've verified the domain yourself in ${providerInput === "resend" ? "Resend's" : "the provider's"} dashboard.`}
+            confirmLabel="Confirm"
+            onConfirm={async () => {
+              setDomainError(null);
+              try {
+                await updateDomain(company.id, {
+                  sendingDomain: domainInput.trim(),
+                  domainVerified: true,
+                });
+                load();
+              } catch (err) {
+                setDomainError(err instanceof Error ? err.message : "Failed to update domain");
+              }
+            }}
+          />
+        </div>
+        {domainError && <p className="mt-2 text-sm font-medium text-red-600">{domainError}</p>}
       </div>
 
       <div className="mb-6 rounded-xl bg-white p-6 shadow">

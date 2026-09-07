@@ -12,7 +12,7 @@ export interface Recipient {
   email: string;
   mergeData: Record<string, unknown> | null;
   status: RecipientStatus;
-  sesMessageId: string | null;
+  providerMessageId: string | null;
   errorMessage: string | null;
   sentAt: string | null;
   deliveredAt: string | null;

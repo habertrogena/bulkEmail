@@ -2,11 +2,13 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Headers,
   Logger,
   Post,
 } from '@nestjs/common';
 import { SnsSignatureService } from './sns-signature.service';
 import { WebhooksService } from './webhooks.service';
+import { ResendEmailProviderService } from '../email-provider/resend-email-provider.service';
 import type { SesNotification, SnsEnvelope } from './sns-message.types';
 
 @Controller('webhooks')
@@ -16,6 +18,7 @@ export class WebhooksController {
   constructor(
     private readonly snsSignature: SnsSignatureService,
     private readonly webhooksService: WebhooksService,
+    private readonly resendProvider: ResendEmailProviderService,
   ) {}
 
   @Post('ses')
@@ -50,6 +53,60 @@ export class WebhooksController {
         throw new BadRequestException('Invalid notification payload');
       }
       await this.webhooksService.handleSesNotification(notification);
+    }
+
+    return { ok: true };
+  }
+
+  @Post('resend')
+  async handleResend(
+    @Body() rawBody: string,
+    @Headers('webhook-id') webhookId: string,
+    @Headers('webhook-timestamp') webhookTimestamp: string,
+    @Headers('webhook-signature') webhookSignature: string,
+  ): Promise<{ ok: boolean }> {
+    const secret = process.env.RESEND_WEBHOOK_SECRET;
+    if (!secret) {
+      this.logger.error(
+        'Received a Resend webhook but RESEND_WEBHOOK_SECRET is not set',
+      );
+      throw new BadRequestException('Resend webhooks are not configured');
+    }
+    if (!webhookId || !webhookTimestamp || !webhookSignature) {
+      throw new BadRequestException('Missing webhook signature headers');
+    }
+
+    let event;
+    try {
+      event = this.resendProvider.verifyWebhookEvent(
+        rawBody,
+        { id: webhookId, timestamp: webhookTimestamp, signature: webhookSignature },
+        secret,
+      );
+    } catch {
+      throw new BadRequestException('Invalid Resend webhook signature');
+    }
+
+    switch (event.type) {
+      case 'email.delivered':
+        await this.webhooksService.recordDelivered(event.data.email_id);
+        break;
+      case 'email.bounced':
+        // Resend's bounce.type isn't a strictly-typed union in its SDK
+        // (unlike SES's Permanent/Transient) — treat anything explicitly
+        // reported as a hard/permanent bounce as suppression-worthy, and
+        // everything else as transient (do not suppress).
+        await this.webhooksService.recordBounced(
+          event.data.email_id,
+          event.data.bounce.type?.toLowerCase() === 'permanent' ||
+            event.data.bounce.subType?.toLowerCase().includes('hard'),
+        );
+        break;
+      case 'email.complained':
+        await this.webhooksService.recordComplained(event.data.email_id);
+        break;
+      default:
+        this.logger.debug(`Ignoring Resend event type ${event.type}`);
     }
 
     return { ok: true };

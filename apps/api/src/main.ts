@@ -33,6 +33,9 @@ async function bootstrap() {
   // JSON parser — which would otherwise skip it anyway based on content-type,
   // but this keeps the raw string available as req.body for signature checks.
   app.use('/webhooks/ses', express.text({ type: '*/*', limit: '5mb' }));
+  // Resend's webhook signature (Standard Webhooks/Svix) is also computed
+  // over the exact raw body bytes, same reasoning as /webhooks/ses above.
+  app.use('/webhooks/resend', express.text({ type: '*/*', limit: '5mb' }));
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 

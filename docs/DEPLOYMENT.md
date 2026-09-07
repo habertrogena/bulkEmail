@@ -254,3 +254,52 @@ fix ships.
 - [ ] Branch protection on `main` requires a reviewed PR before merge.
 - [ ] The VPS user's `~/.ssh/authorized_keys` has the public half of
       `VPS_SSH_KEY`.
+
+## 11. Resend as an alternate email provider
+
+While SES production access is pending (sandbox: 200 emails/day, verified
+recipients only), a company can be switched to send through Resend instead,
+via `Company.emailProvider` (`"ses"` default, or `"resend"`). See
+`apps/api/src/common/email-provider/` for the provider abstraction — the
+queue processor and `/companies/domain` endpoints branch on this field
+through `EmailProviderFactory`, nothing else needs to know which provider is
+active for a given company.
+
+**Setting the field:** the admin app's company detail page
+(`/companies/:id`) has a "Sending provider" control that calls
+`PATCH /admin/companies/:id/provider` — use this for the normal case.
+
+**If you need it flipped before the admin app's next deploy ships** (e.g.
+mid-incident, or before this feature's own deploy has gone out), the fastest
+path is a direct SQL update against production Postgres — this is a
+deliberate, documented interim step, not the primary way to do this:
+
+```bash
+docker compose -f docker-compose.deploy.yml --env-file .env exec -T postgres \
+  psql -U campaigns -d campaigns -c \
+  "UPDATE \"Company\" SET \"emailProvider\" = 'resend' WHERE id = '<company-id>';"
+```
+
+Switching a company's provider does **not** migrate anything: they keep
+their existing `sendingDomain` value, but must re-add and re-verify it
+through `/settings/domain` under the new provider (SES and Resend domain
+identities are unrelated) before they can send.
+
+**One-time setup for Resend itself:**
+
+1. Set `RESEND_API_KEY` in `.env` (Resend dashboard → API Keys). Not required
+   until at least one company uses the `resend` provider.
+2. Create a webhook endpoint in the Resend dashboard pointing at
+   `{API_URL}/webhooks/resend`, subscribed to `email.delivered`,
+   `email.bounced`, and `email.complained`. Set the signing secret it gives
+   you as `RESEND_WEBHOOK_SECRET`.
+3. Have the company add their sending domain via `/settings/domain` as
+   normal — the DKIM/SPF/MX records shown come straight from Resend's
+   `domains.create` response.
+
+**Known limitation, not fixed in this pass:** the BullMQ send-rate limiter
+(`apps/api/src/common/queue/queue.module.ts`) is still tuned off SES's
+account quota for the whole queue, Resend-backed sends included. This is
+safe (SES's sandbox-safe default of 1/sec is well under Resend's own
+limits) but not principled — a genuinely per-provider rate limit would need
+separate queues.
